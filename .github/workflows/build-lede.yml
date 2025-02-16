@@ -1,86 +1,99 @@
 name: Build LEDE
 
 on:
-push:
-branches: [ main ]
-workflow_dispatch:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-latest
-timeout-minutes: 180
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
 
-steps:
-# --- 步骤 1: 检出代码 ---
-- name: Checkout code
-uses: actions/checkout@v4
-with:
-submodules: recursive
+    steps:
+      # --- 步骤 1: 检出代码 ---
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-# --- 步骤 2: 生成日期变量 ---
-- name: Generate Date
-id: date
-run: |
-DATE=$(date +'%Y%m%d-%H%M')
-echo "PACKAGED_OUTPUTDATE=${{ github.run_id }}_$DATE" >> $GITHUB_ENV
+      # --- 步骤 2: 生成日期变量 ---
+      - name: Generate Date
+        id: date
+        run: |
+          DATE=$(date +'%Y%m%d-%H%M')
+          echo "PACKAGED_OUTPUTDATE=${{ github.run_id }}_$DATE" >> $GITHUB_ENV
 
-# --- 步骤 3: 缓存依赖 ---
-- name: Cache dependencies
-uses: actions/cache@v3
-with:
-path: |
-lede/ccache # 编译缓存
-lede/dl # 预下载的源码包
-key: ${{ runner.os }}-lede-${{ hashFiles('.config') }}-${{ github.sha }}
+      # --- 步骤 3: 缓存依赖 ---
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            lede/ccache # 编译缓存
+            lede/dl # 预下载的源码包
+          key: ${{ runner.os }}-lede-${{ hashFiles('.config') }}-${{ github.ref_name }}
 
-# --- 步骤 4: 安装编译依赖 ---
-- name: Install dependencies
-run: |
-sudo apt-get update -y
-sudo apt-get install -y \
-ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-bzip2 ccache cmake cpio curl device-tree-compiler flex gawk gcc-multilib \
-gettext genisoimage git gperf help2man intltool libc6-dev-i386 libelf-dev \
-libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
-libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
-libtool llvm ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools \
-python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
-uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
+      # --- 步骤 4: 安装编译依赖 ---
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            ack=2.24-2 antlr3=3.5.2-3 asciidoc=8.6.9-10 autoconf=2.69-11 automake=1:1.16.5-1 autopoint=0.21-1 binutils=2.38-4ubuntu2.1 bison=2:3.8.2+dfsg-1 build-essential=12.9ubuntu3 \
+            bzip2=1.0.8-5 ccache=4.6.3-1 cmake=3.22.1-1ubuntu1 cpio=2.13+dfsg-6 curl=7.81.0-1ubuntu1.10 device-tree-compiler=1.6.1-2 flex=2.6.4-8 gawk=1:5.1.0+dfsg-1 gcc-multilib=4:11.2.0-1ubuntu1 \
+            gettext=0.21-4 genisoimage=1.1.11-11 git=1:2.34.1-1ubuntu1.9 gperf=3.1-8 help2man=1.49.2-1 intltool=0.51.0-7 libc6-dev-i386=2.35-0ubuntu3.1 libelf-dev=0.185-1 libfuse-dev=2.9.9-3ubuntu2 \
+            libglib2.0-dev=2.72.4-0ubuntu1 libgmp3-dev=2:6.2.1+dfsg-3 libltdl-dev=2.4.6-15build2 libmpc-dev=1.2.1-1 libmpfr-dev=4.1.0-3 libncurses5-dev=6.3-2 libncursesw5-dev=6.3-2 libpython3-dev=3.10.6-1~22.04 libreadline-dev=8.1.2-1 \
+            libssl-dev=3.0.2-0ubuntu1.10 libtool=2.4.6-15build2 llvm=1:14.0-55~exp2 ninja-build=1.10.1-1 p7zip=16.02+dfsg-6 p7zip-full=16.02+dfsg-6 patch=2.7.6-7ubuntu1 pkgconf=1.8.0-1 python3=3.10.6-1~22.04 python3-pyelftools=0.27-1 \
+            python3-setuptools=59.6.0-1ubuntu1 qemu-utils=1:7.0+dfsg-7ubuntu2.1 rsync=3.2.7-0ubuntu0.22.04.1 scons=4.4.0-1 squashfs-tools=1:4.5.1-1 subversion=1.14.1-4ubuntu1.2 swig=4.0.2-5 texinfo=6.8-4 \
+            uglifyjs=2.4.24-1 upx-ucl=3.96-3build1 unzip=6.0-26ubuntu3 vim=2:8.2.3995-1ubuntu2 wget=1.21.2-2ubuntu1 xmlto=0.0.28-3 xxd=2:8.2.3995-1ubuntu2 zlib1g-dev=1:1.2.11.dfsg-2ubuntu9.2 jq=1.6-2.1ubuntu3 zstd=1.4.8+dfsg-3 libzstd-dev=1.4.8+dfsg-3
 
-# --- 步骤 5: 准备编译环境 ---
-- name: Prepare build environment
-run: |
-git clone https://github.com/coolsnowwolf/lede.git lede
-cd lede
-./scripts/feeds update -a
-./scripts/feeds install -a
-cp $GITHUB_WORKSPACE/.config .
-make defconfig
+      # --- 步骤 5: 准备编译环境 ---
+      - name: Prepare build environment
+        run: |
+          git clone https://github.com/coolsnowwolf/lede.git lede
+          cd lede
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          cp $GITHUB_WORKSPACE/.config .
+          make defconfig
 
-# --- 步骤 6: 编译固件 ---
-- name: Compile LEDE
-id: compile
-run: |
-cd lede
-echo -e "$(nproc) thread compile"
-make -j$(nproc) || make -j1 || make -j1 V=s
-echo "compile_status=success" >> $GITHUB_ENV
+      # --- 步骤 6: 编译固件 ---
+      - name: Compile LEDE
+        id: compile
+        run: |
+          cd lede
+          echo -e "$(nproc) thread compile"
+          make -j$(nproc) || make -j1 || make -j1 V=s > build.log 2>&1
+          if [ $? -ne 0 ]; then
+            echo "compile_status=failed" >> $GITHUB_ENV
+            exit 1
+          fi
+          echo "compile_status=success" >> $GITHUB_ENV
+        continue-on-error: true
 
-# --- 步骤 7: 上传到 Release (新增功能) ---
-- name: Upload to Release
-if: ${{ steps.compile.outcome == 'success' }} # 仅在编译成功时触发
-uses: ncipollo/release-action@v1
-with:
-tag: OpenWrt_nokia_ea0326gmp_${{ env.PACKAGED_OUTPUTDATE }}
-artifacts: "lede/bin/targets/*/*/*.bin" # 匹配所有固件文件
-allowUpdates: true
-token: ${{ secrets.GITHUB_TOKEN }}
-body: |
-### 基于 Lean 的 LEDE 源码构建
-**首次使用建议全新刷写**
+      - name: Upload build log
+        if: ${{ steps.compile.outcome == 'failure' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-log
+          path: lede/build.log
 
-**基本信息**
-- 管理 IP: 192.168.1.1
-- 用户名: root
-- 密码: password
-- 设备型号: nokia_ea0326gmp
+      # --- 步骤 7: 上传到 Release (新增功能) ---
+      - name: Upload to Release
+        if: ${{ steps.compile.outcome == 'success' }} # 仅在编译成功时触发
+        uses: ncipollo/release-action@v1
+        with:
+          tag: OpenWrt_nokia_ea0326gmp_${{ env.PACKAGED_OUTPUTDATE }}
+          artifacts: "lede/bin/targets/*/*/nokia_ea0326gmp*.bin" # 过滤只上传特定设备的固件文件
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            ### 基于 Lean 的 LEDE 源码构建
+            **首次使用建议全新刷写**
+
+            **基本信息**
+            - 管理 IP: 192.168.1.1
+            - 用户名: root
+            - 密码: password
+            - 设备型号: nokia_ea0326gmp
+            - 代码版本: ${{ github.sha }}
+            - 构建环境: ${{ runner.os }}
