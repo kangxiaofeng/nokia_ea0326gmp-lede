@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  PACKAGED_OUTPUTDATE: ${{ github.run_id }}_$(date +'%Y%m%d-%H%M')
+  PACKAGED_OUTPUTDATE: ${{ github.run_id }}_${{ github.run_number }}_${{ github.run_attempt }}
   TARGET_DEVICE: "nokia_ea0326gmp"
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
         cd lede
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        cp $GITHUB_WORKSPACE/.config .
+        cp ../../.config .
         make defconfig
 
     # --- 步骤 5: 编译固件 ---
