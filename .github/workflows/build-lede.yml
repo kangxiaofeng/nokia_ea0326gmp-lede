@@ -1,4 +1,4 @@
-name: Build LEDE Optimized
+name: Build LEDE
 
 on:
   push:
@@ -6,118 +6,92 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
-  REPO_BRANCH: master
-  CONFIG_FILE: .config
+  PACKAGED_OUTPUTDATE: ${{ github.run_id }}_$(date +'%Y%m%d-%H%M')
   TARGET_DEVICE: "nokia_ea0326gmp"
-  TZ: Asia/Shanghai
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 180
 
     steps:
-    # --- 磁盘空间优化阶段 ---
-    - name: Check machine configuration
-      run: |
-        echo "硬件资源监测："
-        echo "--------------------------CPU信息--------------------------"
-        echo "CPU物理数量:$(grep -c 'physical id' /proc/cpuinfo)"
-        echo -e "CPU核心信息：$(lscpu | grep 'Model name' | sed 's/^.*: //') \n"
-        echo "--------------------------内存信息--------------------------"
-        free -h
-        echo "--------------------------硬盘信息--------------------------"
-        df -Th
-
-    - name: Optimize Disk Space
-      uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
-      with:
-        operate_sudo: "True"
-        docker_prune: "True"
-        apt_prune: "True"
-        swap_size_mb: 1024
-
-    # --- 代码准备阶段 ---
+    # --- 步骤 1: 检出代码 ---
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        path: lede
 
-    # --- 环境初始化阶段 ---
-    - name: Initialize environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo timedatectl set-timezone "$TZ"
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential ccache cmake curl flex gawk gettext git libncurses-dev libssl-dev \
-          python3 python3-distutils rsync unzip zlib1g-dev file wget qemu-utils
-
-    # --- 编译缓存设置 ---
-    - name: Cache build dependencies
+    # --- 步骤 2: 缓存依赖 ---
+    - name: Cache lede source
       uses: actions/cache@v3
+      id: lede-cache
       with:
-        path: |
-          lede/dl
-          lede/build_dir
-          ~/.ccache
-        key: ${{ runner.os }}-lede-${{ env.TARGET_DEVICE }}-${{ hashFiles('lede/feeds.conf.default') }}
+        paths:
+          - lede/
+        key: ${{ runner.os }}-lede-${{ github.sha }}
 
-    # --- 源码配置阶段 ---
-    - name: Configure source
-      working-directory: ./lede
+    # --- 步骤 3: 安装编译依赖 ---
+    - name: Install dependencies
       run: |
-        [ -e $GITHUB_WORKSPACE/$CONFIG_FILE ] && cp $GITHUB_WORKSPACE/$CONFIG_FILE .config
+        sudo apt-get update -y
+        sudo apt-get install -y \
+          ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache cmake cpio curl device-tree-compiler flex gawk gcc-multilib \
+          gettext genisoimage git gperf help2man intltool libc6-dev-i386 libelf-dev \
+          libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+          libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
+          libtool llvm ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools \
+          python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
+          uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
+
+    # --- 步骤 4: 准备编译环境 ---
+    - name: Prepare build environment
+      run: |
+        mkdir -p lede
+        cd lede
+        if [ -d lede ]; then
+          echo "缓存已存在，跳过克隆"
+        else
+          git clone https://github.com/coolsnowwolf/lede.git lede
+        fi
+        cd lede
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        cp $GITHUB_WORKSPACE/.config .
         make defconfig
 
-    # --- 固件编译阶段 ---
-    - name: Compile firmware
-      working-directory: ./lede
+    # --- 步骤 5: 编译固件 ---
+    - name: Compile LEDE
+      id: compile
       run: |
-        make download -j$(nproc)
-        find dl -size -1024c -delete
-        echo "开始编译（使用$(nproc)线程）"
-        make -j$(($(nproc) + 1)) || make -j1 V=s
-        echo "compile_status=success" >> $GITHUB_ENV
+        cd lede
+        if ! make -j$(nproc); then
+          echo "使用 $(nproc) 个线程编译失败，尝试使用单线程..."
+          if ! make -j1; then
+            echo "单线程编译失败，再次尝试单线程编译..."
+            if ! make -j1 V=s; then
+              echo "所有编译尝试都失败，请检查错误日志..."
+              exit 1
+            fi
+          fi
+        fi
+        echo "compile_status=success" >> $GITHUB_OUTPUT
 
-    # --- 制品处理阶段 ---
-    - name: Upload artifacts
-      if: ${{ env.compile_status == 'success' }}
-      uses: actions/upload-artifact@v3
+    # --- 步骤 6: 上传到 Release ---
+    - name: Upload to Release
+      if: steps.compile.outputs.compile_status == 'success'
+      uses: ncipollo/release-action@v1
       with:
-        name: lede-${{ env.TARGET_DEVICE }}-bin
-        path: lede/bin/targets/*/*
-
-    - name: Create release
-      if: ${{ env.compile_status == 'success' }}
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ env.TARGET_DEVICE }}-$(date +'%Y%m%d')
-        files: |
-          lede/bin/targets/**/*.bin
-          lede/bin/targets/**/*.manifest
+        tag: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
+        artifacts: "lede/bin/targets/*/*/*.bin"
+        allowUpdates: true
+        token: ${{ secrets.GITHUB_TOKEN }}
         body: |
-          ### 自动编译 LEDE 固件
-          **设备型号**: ${{ env.TARGET_DEVICE }}
-          **编译时间**: $(date +'%Y-%m-%d %H:%M:%S')
+          ### 基于 Lean 的 LEDE 源码构建
+          **首次使用建议全新刷写**
           
-          默认登录信息：
-          - 地址: 192.168.1.1
+          **基本信息**
+          - 管理 IP: 192.168.1.1
           - 用户名: root
           - 密码: password
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # --- 清理旧版本 ---
-    - name: Clean old releases
-      uses: dev-drprasad/delete-older-releases@v0.2.0
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          - 设备型号: ${{ env.TARGET_DEVICE }}
