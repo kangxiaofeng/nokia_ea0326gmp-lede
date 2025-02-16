@@ -5,10 +5,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  PACKAGED_OUTPUTDATE: ${{ github.run_id }}_${{ github.run_number }}_${{ github.run_attempt }}
-  TARGET_DEVICE: "nokia_ea0326gmp"
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,16 +17,23 @@ jobs:
       with:
         submodules: recursive
 
-    # --- 步骤 2: 缓存依赖 ---
-    - name: Cache lede source
-      uses: actions/cache@v3
-      id: lede-cache
-      with:
-        paths:
-          - lede/
-        key: ${{ runner.os }}-lede-${{ github.sha }}
+    # --- 步骤 2: 生成日期变量 ---
+    - name: Generate Date
+      id: date
+      run: |
+        DATE=$(date +'%Y%m%d-%H%M')
+        echo "PACKAGED_OUTPUTDATE=${{ github.run_id }}_$DATE" >> $GITHUB_ENV
 
-    # --- 步骤 3: 安装编译依赖 ---
+    # --- 步骤 3: 缓存依赖 ---
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          lede/ccache  # 编译缓存
+          lede/dl      # 预下载的源码包
+        key: ${{ runner.os }}-lede-${{ hashFiles('.config') }}-${{ github.sha }}
+
+    # --- 步骤 4: 安装编译依赖 ---
     - name: Install dependencies
       run: |
         sudo apt-get update -y
@@ -44,46 +47,31 @@ jobs:
           python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
           uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
 
-    # --- 步骤 4: 准备编译环境 ---
+    # --- 步骤 5: 准备编译环境 ---
     - name: Prepare build environment
       run: |
-        mkdir -p lede
-        cd lede
-        if [ -d lede ]; then
-          echo "缓存已存在，跳过克隆"
-        else
-          git clone https://github.com/coolsnowwolf/lede.git lede
-        fi
+        git clone https://github.com/coolsnowwolf/lede.git lede
         cd lede
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        cp ../../.config .
+        cp $GITHUB_WORKSPACE/.config .
         make defconfig
 
-    # --- 步骤 5: 编译固件 ---
+    # --- 步骤 6: 编译固件 ---
     - name: Compile LEDE
       id: compile
       run: |
         cd lede
-        if ! make -j$(nproc); then
-          echo "使用 $(nproc) 个线程编译失败，尝试使用单线程..."
-          if ! make -j1; then
-            echo "单线程编译失败，再次尝试单线程编译..."
-            if ! make -j1 V=s; then
-              echo "所有编译尝试都失败，请检查错误日志..."
-              exit 1
-            fi
-          fi
-        fi
-        echo "compile_status=success" >> $GITHUB_OUTPUT
+        make -j$(($(nproc) + 1)) V=s
+      continue-on-error: false  # 失败则停止
 
-    # --- 步骤 6: 上传到 Release ---
+    # --- 步骤 7: 上传到 Release (新增功能) ---
     - name: Upload to Release
-      if: steps.compile.outputs.compile_status == 'success'
+      if: ${{ steps.compile.outcome == 'success' }}  # 仅在编译成功时触发
       uses: ncipollo/release-action@v1
       with:
-        tag: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
-        artifacts: "lede/bin/targets/*/*/*.bin"
+        tag: OpenWrt_nokia_ea0326gmp_${{ env.PACKAGED_OUTPUTDATE }}
+        artifacts: "lede/bin/targets/*/*/*.bin"      # 匹配所有固件文件
         allowUpdates: true
         token: ${{ secrets.GITHUB_TOKEN }}
         body: |
@@ -94,4 +82,4 @@ jobs:
           - 管理 IP: 192.168.1.1
           - 用户名: root
           - 密码: password
-          - 设备型号: ${{ env.TARGET_DEVICE }}
+          - 设备型号: nokia_ea0326gmp
