@@ -7,6 +7,10 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+env:
+  TARGET_DEVICE: nokia_ea0326gmp
+  PACKAGED_OUTPUTDATE: ${{ formatDate(utcNow(), 'YYYYMMDD') }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,6 +22,7 @@ jobs:
 
       - name: Initial disk cleanup
         run: |
+          # 清理系统缓存和临时文件以释放磁盘空间
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo rm -rf /usr/share/doc/*
@@ -28,6 +33,7 @@ jobs:
 
       - name: Setup environment
         run: |
+          # 安装编译所需的依赖包
           sudo apt-get update
           sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
           gettext git java-propose-classpath libelf-dev libncurses5-dev \
@@ -37,27 +43,29 @@ jobs:
 
       - name: Setup ccache
         run: |
+          # 配置编译缓存以加速构建
           ccache -M 1G
           ccache -s
 
       - name: Build LEDE
+        id: compile
         run: |
-          # Clean any previous build artifacts
+          # 清理之前的构建产物
           rm -rf bin/
           rm -rf build_dir/
           rm -rf staging_dir/
           
-          # Update feeds
+          # 更新软件源
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           
-          # Configure build
+          # 配置构建
           make defconfig
           
-          # Build with reduced parallel jobs and ccache
+          # 使用2个线程进行编译
           make -j2 V=s
           
-          # Clean up build artifacts
+          # 清理构建过程中的临时文件
           find . -type f -name "*.o" -delete
           find . -type f -name "*.d" -delete
           find . -type f -name "*.a" -delete
@@ -71,20 +79,61 @@ jobs:
           find . -type f -name "*.tar" -delete
           find . -type f -name "*.zip" -delete
           
-          # Check disk space
+          # 检查磁盘空间使用情况
           df -h
+
+      - name: Prepare artifacts
+        if: success()
+        run: |
+          # 准备上传文件
+          echo "准备上传构建产物..."
+          ls -lh bin/
+          # 创建构建信息文件
+          echo "构建时间: $(date)" > bin/build-info.txt
+          echo "Git提交: $(git rev-parse HEAD)" >> bin/build-info.txt
+          echo "构建环境: $(uname -a)" >> bin/build-info.txt
 
       - name: Upload artifacts
         if: success()
         uses: actions/upload-artifact@v3
         with:
-          name: lede-build
-          path: bin/
+          name: lede-build-${{ github.sha }}
+          path: |
+            bin/
+            bin/build-info.txt
           retention-days: 3
+          if-no-files-found: error
+
+      - name: Upload to Release
+        if: success()
+        uses: ncipollo/release-action@v1
+        with:
+          tag: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
+          artifacts: "bin/targets/*/*/*.bin"
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            # OpenWrt 固件发布说明
+            
+            ## 基本信息
+            - 构建时间: ${{ env.PACKAGED_OUTPUTDATE }}
+            - 设备型号: ${{ env.TARGET_DEVICE }}
+            - Git提交: ${{ github.sha }}
+            
+            ## 登录信息
+            - 管理 IP: 192.168.1.1
+            - 用户名: root
+            - 密码: password
+            
+            ## 注意事项
+            - 首次刷机请使用 factory 固件
+            - 升级请使用 sysupgrade 固件
+            - 刷机前请备份重要数据
 
       - name: Cleanup on failure
         if: failure()
         run: |
+          # 构建失败时的清理工作
           df -h
           sudo rm -rf bin/
           sudo rm -rf build_dir/
@@ -98,6 +147,7 @@ jobs:
       - name: Final cleanup
         if: always()
         run: |
+          # 最终清理，无论构建成功还是失败都会执行
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo rm -rf /usr/share/doc/*
