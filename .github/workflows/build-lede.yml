@@ -2,188 +2,84 @@ name: Build LEDE
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: [ main ]
   workflow_dispatch:
-
-env:
-  TARGET_DEVICE: nokia_ea0326gmp
-  PACKAGED_OUTPUTDATE: ${{ github.event.repository.updated_at }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+    # --- 步骤 1: 检出代码 ---
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      - name: Set build date
-        run: |
-          echo "PACKAGED_OUTPUTDATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+    # --- 步骤 2: 生成日期变量 ---
+    - name: Generate Date
+      id: date
+      run: |
+        DATE=$(date +'%Y%m%d-%H%M')
+        echo "PACKAGED_OUTPUTDATE=${{ github.run_id }}_$DATE" >> $GITHUB_ENV
 
-      - name: Initial disk cleanup
-        run: |
-          # 清理系统缓存和临时文件以释放磁盘空间
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /usr/share/doc/*
-          sudo rm -rf /usr/share/man/*
-          sudo rm -rf /usr/share/locale/*
-          sudo rm -rf /var/cache/apt/*
-          df -h
+    # --- 步骤 3: 缓存依赖 ---
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          lede/ccache  # 编译缓存
+          lede/dl      # 预下载的源码包
+        key: ${{ runner.os }}-lede-${{ hashFiles('.config') }}-${{ github.sha }}
 
-      - name: Setup environment
-        run: |
-          # 安装编译所需的依赖包
-          sudo apt-get update
-          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
-          gettext git java-propose-classpath libelf-dev libncurses5-dev \
-          libncursesw5-dev libssl-dev python3 python3-dev python3-pip \
-          python3-setuptools python3-venv rsync unzip wget python3-yaml \
-          device-tree-compiler time python-is-python3
+    # --- 步骤 4: 安装编译依赖 ---
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y \
+          ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache cmake cpio curl device-tree-compiler flex gawk gcc-multilib \
+          gettext genisoimage git gperf help2man intltool libc6-dev-i386 libelf-dev \
+          libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+          libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
+          libtool llvm ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools \
+          python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
+          uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
 
-      - name: Setup ccache
-        run: |
-          # 配置编译缓存以加速构建
-          ccache -M 1G
-          ccache -s
+    # --- 步骤 5: 准备编译环境 ---
+    - name: Prepare build environment
+      run: |
+        git clone https://github.com/coolsnowwolf/lede.git lede
+        cd lede
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        cp $GITHUB_WORKSPACE/.config .
+        make defconfig
 
-      - name: Build LEDE
-        id: compile
-        run: |
-          # 清理之前的构建产物
-          rm -rf bin/
-          rm -rf build_dir/
-          rm -rf staging_dir/
+    # --- 步骤 6: 编译固件 ---
+    - name: Compile LEDE
+      id: compile
+      run: |
+        cd lede
+        make -j$(($(nproc) + 1)) V=s
+      continue-on-error: false  # 失败则停止
+
+    # --- 步骤 7: 上传到 Release (新增功能) ---
+    - name: Upload to Release
+      if: ${{ steps.compile.outcome == 'success' }}  # 仅在编译成功时触发
+      uses: ncipollo/release-action@v1
+      with:
+        tag: OpenWrt_nokia_ea0326gmp_${{ env.PACKAGED_OUTPUTDATE }}
+        artifacts: "lede/bin/targets/*/*/*.bin"      # 匹配所有固件文件
+        allowUpdates: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+        body: |
+          ### 基于 Lean 的 LEDE 源码构建
+          **首次使用建议全新刷写**
           
-          # 更新软件源
-          echo "开始更新软件源..."
-          ./scripts/feeds update -a || {
-            echo "软件源更新失败"
-            exit 1
-          }
-          
-          echo "开始安装软件包..."
-          ./scripts/feeds install -a || {
-            echo "软件包安装失败"
-            exit 1
-          }
-          
-          # 配置构建
-          echo "开始配置构建..."
-          make defconfig || {
-            echo "构建配置失败"
-            exit 1
-          }
-          
-          # 使用2个线程进行编译
-          echo "开始编译..."
-          make -j2 V=s 2>&1 | tee build.log || {
-            echo "编译失败，查看日志..."
-            cat build.log
-            exit 1
-          }
-          
-          # 检查编译结果
-          if [ ! -d "bin/targets" ]; then
-            echo "编译产物目录不存在"
-            exit 1
-          fi
-          
-          # 清理构建过程中的临时文件
-          echo "清理临时文件..."
-          find . -type f -name "*.o" -delete
-          find . -type f -name "*.d" -delete
-          find . -type f -name "*.a" -delete
-          find . -type f -name "*.so" -delete
-          find . -type f -name "*.la" -delete
-          find . -type f -name "*.lo" -delete
-          find . -type f -name "*.log" -delete
-          find . -type f -name "*.gz" -delete
-          find . -type f -name "*.xz" -delete
-          find . -type f -name "*.bz2" -delete
-          find . -type f -name "*.tar" -delete
-          find . -type f -name "*.zip" -delete
-          
-          # 检查磁盘空间使用情况
-          df -h
-
-      - name: Prepare artifacts
-        if: success()
-        run: |
-          # 准备上传文件
-          echo "准备上传构建产物..."
-          ls -lh bin/
-          # 创建构建信息文件
-          echo "构建时间: $(date)" > bin/build-info.txt
-          echo "Git提交: $(git rev-parse HEAD)" >> bin/build-info.txt
-          echo "构建环境: $(uname -a)" >> bin/build-info.txt
-          # 添加构建日志
-          cp build.log bin/build.log
-
-      - name: Upload artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lede-build-${{ github.sha }}
-          path: |
-            bin/
-            bin/build-info.txt
-            bin/build.log
-          retention-days: 3
-          if-no-files-found: error
-
-      - name: Upload to Release
-        if: success()
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
-          files: bin/targets/*/*/*.bin
-          body: |
-            # OpenWrt 固件发布说明
-            
-            ## 基本信息
-            - 构建时间: ${{ env.PACKAGED_OUTPUTDATE }}
-            - 设备型号: ${{ env.TARGET_DEVICE }}
-            - Git提交: ${{ github.sha }}
-            
-            ## 登录信息
-            - 管理 IP: 192.168.1.1
-            - 用户名: root
-            - 密码: password
-            
-            ## 注意事项
-            - 首次刷机请使用 factory 固件
-            - 升级请使用 sysupgrade 固件
-            - 刷机前请备份重要数据
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cleanup on failure
-        if: failure()
-        run: |
-          # 构建失败时的清理工作
-          df -h
-          sudo rm -rf bin/
-          sudo rm -rf build_dir/
-          sudo rm -rf staging_dir/
-          sudo rm -rf tmp/
-          sudo rm -rf dl/
-          sudo rm -rf logs/
-          sudo rm -rf .ccache/
-          df -h
-
-      - name: Final cleanup
-        if: always()
-        run: |
-          # 最终清理，无论构建成功还是失败都会执行
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /usr/share/doc/*
-          sudo rm -rf /usr/share/man/*
-          sudo rm -rf /usr/share/locale/*
-          sudo rm -rf /var/cache/apt/*
-          df -h 
+          **基本信息**
+          - 管理 IP: 192.168.1.1
+          - 用户名: root
+          - 密码: password
+          - 设备型号: nokia_ea0326gmp
