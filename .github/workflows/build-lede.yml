@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload artifacts
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: lede-build-${{ github.sha }}
           path: |
@@ -110,12 +110,10 @@ jobs:
 
       - name: Upload to Release
         if: success()
-        uses: ncipollo/release-action@v1
+        uses: softprops/action-gh-release@v1
         with:
-          tag: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
-          artifacts: "bin/targets/*/*/*.bin"
-          allowUpdates: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: OpenWrt_${{ env.TARGET_DEVICE }}_${{ env.PACKAGED_OUTPUTDATE }}
+          files: bin/targets/*/*/*.bin
           body: |
             # OpenWrt 固件发布说明
             
@@ -133,6 +131,8 @@ jobs:
             - 首次刷机请使用 factory 固件
             - 升级请使用 sysupgrade 固件
             - 刷机前请备份重要数据
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cleanup on failure
         if: failure()
