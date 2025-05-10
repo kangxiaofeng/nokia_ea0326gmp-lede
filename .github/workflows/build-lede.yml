@@ -65,7 +65,7 @@ jobs:
         make -j$(($(nproc) + 1)) V=s
       continue-on-error: false  # 失败则停止
 
-    # --- 步骤 7: 上传到 Release (新增功能) ---
+    # --- 步骤 7: 上传到 Release ---
     - name: Upload to Release
       if: ${{ steps.compile.outcome == 'success' }}  # 仅在编译成功时触发
       uses: ncipollo/release-action@v1
@@ -83,3 +83,12 @@ jobs:
           - 用户名: root
           - 密码: password
           - 设备型号: nokia_ea0326gmp
+          
+          **注意事项**
+          - 首次刷机请使用 factory 固件
+          - 升级请使用 sysupgrade 固件
+          - 刷机前请备份重要数据
+          
+          **构建信息**
+          - 构建时间: ${{ env.PACKAGED_OUTPUTDATE }}
+          - Git提交: ${{ github.sha }} 
