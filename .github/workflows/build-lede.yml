@@ -60,16 +60,41 @@ jobs:
           rm -rf staging_dir/
           
           # 更新软件源
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          echo "开始更新软件源..."
+          ./scripts/feeds update -a || {
+            echo "软件源更新失败"
+            exit 1
+          }
+          
+          echo "开始安装软件包..."
+          ./scripts/feeds install -a || {
+            echo "软件包安装失败"
+            exit 1
+          }
           
           # 配置构建
-          make defconfig
+          echo "开始配置构建..."
+          make defconfig || {
+            echo "构建配置失败"
+            exit 1
+          }
           
           # 使用2个线程进行编译
-          make -j2 V=s
+          echo "开始编译..."
+          make -j2 V=s 2>&1 | tee build.log || {
+            echo "编译失败，查看日志..."
+            cat build.log
+            exit 1
+          }
+          
+          # 检查编译结果
+          if [ ! -d "bin/targets" ]; then
+            echo "编译产物目录不存在"
+            exit 1
+          fi
           
           # 清理构建过程中的临时文件
+          echo "清理临时文件..."
           find . -type f -name "*.o" -delete
           find . -type f -name "*.d" -delete
           find . -type f -name "*.a" -delete
@@ -96,6 +121,8 @@ jobs:
           echo "构建时间: $(date)" > bin/build-info.txt
           echo "Git提交: $(git rev-parse HEAD)" >> bin/build-info.txt
           echo "构建环境: $(uname -a)" >> bin/build-info.txt
+          # 添加构建日志
+          cp build.log bin/build.log
 
       - name: Upload artifacts
         if: success()
@@ -105,6 +132,7 @@ jobs:
           path: |
             bin/
             bin/build-info.txt
+            bin/build.log
           retention-days: 3
           if-no-files-found: error
 
