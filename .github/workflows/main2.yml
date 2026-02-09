@@ -51,7 +51,7 @@ jobs:
           libtool llvm ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools \
           python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
           uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
-
+ 
     - name: 设置编译环境
       run: |
         rm -rf lede
@@ -69,11 +69,53 @@ jobs:
         echo 'CONFIG_TARGET_OPTIMIZATION_FOR_SIZE=y' >> .config
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        
+    
     - name: 复制配置文件
       run: |
         cp .config lede/
+
+    - name: 添加 MT7987 时钟绑定文件
+      run: |
+        cd lede
+        # 创建目录
+        mkdir -p include/dt-bindings/clock
         
+        # 创建 MT7987 时钟绑定头文件
+        cat > include/dt-bindings/clock/mediatek,mt7987-clk.h << 'EOF'
+        /* SPDX-License-Identifier: GPL-2.0-only */
+        /*
+         * Copyright (c) 2023 MediaTek Inc.
+         * Author: Sam Shih <sam.shih@mediatek.com>
+         */
+        
+        #ifndef _DT_BINDINGS_CLK_MEDIATEK_MT7987_H
+        #define _DT_BINDINGS_CLK_MEDIATEK_MT7987_H
+        
+        /* TOPCKGEN */
+        #define CLK_TOP_XTAL		0
+        #define CLK_TOP_ARMPLL		1
+        #define CLK_TOP_ARMPLL_DIV	2
+        #define CLK_TOP_SYS			3
+        #define CLK_TOP_ETH			4
+        #define CLK_TOP_UART		5
+        #define CLK_TOP_SPI			6
+        #define CLK_TOP_PCIE		7
+        #define CLK_TOP_USB			8
+        #define CLK_TOP_SNAND		9
+        #define CLK_TOP_EMMC		10
+        #define CLK_TOP_AXI			11
+        #define CLK_TOP_HIF			12
+        #define CLK_TOP_NETSYS		13
+        #define CLK_TOP_NETSYS_500M	14
+        #define CLK_TOP_NETSYS_WED	15
+        #define CLK_TOP_NETSYS_PPE	16
+        
+        #endif /* _DT_BINDINGS_CLK_MEDIATEK_MT7987_H */
+        EOF
+        
+        echo "✅ MT7987 时钟绑定文件已创建"
+        ls -la include/dt-bindings/clock/
+
     - name: 编译固件
       id: compile
       run: |
@@ -130,10 +172,10 @@ jobs:
           - `*-squashfs-sysupgrade.bin`: 系统升级包，适合日常更新（保留配置）
           
           **使用建议**
-          - 首次刷机：使用 initramfs 版本
+          - 首次刷机：使用 initramfs ���本
           - 系统升级：使用 sysupgrade 版本
           - 系统变砖：使用 initramfs 版本恢复
           
           **构建信息**
           - 构建日期: ${{ env.BUILD_DATE }}
-          - 源码版本: ${{ env.GIT_REV }} 
+          - 源码版本: ${{ env.GIT_REV }}
