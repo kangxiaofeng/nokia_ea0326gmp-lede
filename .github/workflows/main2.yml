@@ -67,6 +67,7 @@ jobs:
       run: |
         cd lede
         make defconfig
+        make download -j$(nproc) V=s
         make -j$(nproc) V=s
         if [ $? -ne 0 ]; then
           echo "编译失败"
