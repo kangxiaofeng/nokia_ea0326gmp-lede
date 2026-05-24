@@ -57,14 +57,8 @@ jobs:
 
     - name: 克隆 LEDE 并更新 feeds
       run: |
-        if [ -d "lede" ]; then
-          cd lede
-          git fetch --depth=1 origin master
-          git reset --hard origin/master
-        else
-          git clone --depth=1 https://github.com/coolsnowwolf/lede.git
-          cd lede
-        fi
+        git clone --depth=1 https://github.com/coolsnowwolf/lede.git
+        cd lede
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
