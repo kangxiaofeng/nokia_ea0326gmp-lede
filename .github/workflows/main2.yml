@@ -1,21 +1,21 @@
 name: 编译 LEDE 固件
 
 on:
+  schedule:
+    - cron: '0 3 1 * *'
   push:
-    branches: [ master ]
-  pull_request:
     branches: [ master ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: true
-        
+
     - name: 检查初始空间
       run: |
         echo "======================="
@@ -38,7 +38,7 @@ jobs:
         echo "清理后空间使用情况："
         echo "======================="
         df -h
-        
+
     - name: 安装依赖
       run: |
         sudo apt-get update -y
@@ -51,28 +51,22 @@ jobs:
           libtool llvm ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools \
           python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
           uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev jq zstd libzstd-dev
- 
+
     - name: 设置编译环境
       run: |
         rm -rf lede
         git clone https://github.com/coolsnowwolf/lede.git
         cd lede
-        ccache -M 15G
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: 复制配置文件并启用 ccache
+      run: |
+        cp .config lede/.config
+        cd lede
         echo 'CONFIG_CCACHE=y' >> .config
-        echo 'CONFIG_CCACHE_DIR="/tmp/ccache"' >> .config
-        echo 'CONFIG_CCACHE_BIN="/usr/bin/ccache"' >> .config
         echo 'CONFIG_BUILDBOT=y' >> .config
         echo 'CONFIG_SINGLE_IMAGE_FILESYSTEM=y' >> .config
-        echo 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' >> .config
-        echo 'CONFIG_TARGET_IMAGES_GZIP=y' >> .config
-        echo 'CONFIG_TARGET_OPTIMIZATION="-Os -pipe"' >> .config
-        echo 'CONFIG_TARGET_OPTIMIZATION_FOR_SIZE=y' >> .config
-        ./scripts/feeds update -a
-        ./scripts/feeds install
-    
-    - name: 复制配置文件
-      run: |
-        cp .config lede/
 
     - name: 编译固件
       id: compile
@@ -84,7 +78,7 @@ jobs:
           echo "编译失败"
           exit 1
         fi
-        
+
     - name: 验证固件文件
       run: |
         cd lede
@@ -98,42 +92,41 @@ jobs:
           echo "错误：未找到任何固件文件"
           exit 1
         fi
-        
+
     - name: 生成构建信息
       id: buildinfo
       run: |
         echo "BUILD_DATE=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S %Z')" >> $GITHUB_ENV
         echo "BUILD_TAG=$(TZ='Asia/Shanghai' date +'%Y%m%d')" >> $GITHUB_ENV
         echo "GIT_REV=$(git -C lede rev-parse --short HEAD)" >> $GITHUB_ENV
-        
+
     - name: 上传到 Release
       if: ${{ steps.compile.outcome == 'success' }}
       uses: ncipollo/release-action@v1
       with:
         tag: OpenWrt_nokia_ea0326gmp_${{ env.BUILD_TAG }}
-        artifacts: "lede/bin/targets/*/*/*.bin"      # 匹配所有固件文件
+        artifacts: "lede/bin/targets/*/*/*.bin"
         allowUpdates: true
         token: ${{ secrets.GITHUB_TOKEN }}
         body: |
           ### 基于 Lean 的 LEDE 源码构建
           **首次使用建议全新刷写**
-          
+
           **基本信息**
           - 管理 IP: 192.168.1.1
           - 用户名: root
           - 密码: password
           - 设备型号: nokia_ea0326gmp
-          
+
           **固件说明**
           - `*-initramfs-kernel.bin`: 完整系统镜像，适合首次刷机或系统恢复
           - `*-squashfs-sysupgrade.bin`: 系统升级包，适合日常更新（保留配置）
-          
+
           **使用建议**
-          - 首次刷机：使用 initramfs ���本
+          - 首次刷机：使用 initramfs 版本
           - 系统升级：使用 sysupgrade 版本
           - 系统变砖：使用 initramfs 版本恢复
-          
+
           **构建信息**
           - 构建日期: ${{ env.BUILD_DATE }}
           - 源码版本: ${{ env.GIT_REV }}
-
