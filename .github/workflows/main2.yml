@@ -47,14 +47,6 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: 缓存下载源码
-      uses: actions/cache@v4
-      with:
-        path: lede/dl
-        key: dl-${{ hashFiles('.config') }}
-        restore-keys: |
-          dl-
-
     - name: 克隆 LEDE 并更新 feeds
       run: |
         git clone --depth=1 https://github.com/coolsnowwolf/lede.git
