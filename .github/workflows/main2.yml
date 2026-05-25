@@ -61,8 +61,6 @@ jobs:
         echo 'CONFIG_CCACHE=y' >> .config
         echo 'CONFIG_BUILDBOT=y' >> .config
         echo 'CONFIG_SINGLE_IMAGE_FILESYSTEM=y' >> .config
-export CCACHE_DIR=$HOME/.ccache
-ccache --zero-stats > /dev/null 2>&1 || true
 
     - name: 编译固件
       id: compile
