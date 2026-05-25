@@ -70,7 +70,7 @@ jobs:
         echo 'CONFIG_CCACHE=y' >> .config
         echo 'CONFIG_BUILDBOT=y' >> .config
         echo 'CONFIG_SINGLE_IMAGE_FILESYSTEM=y' >> .config
-        echo 'CONFIG_CCACHE_DIR=\"/home/runner/.ccache\"' >> .config
+        echo 'CONFIG_CCACHE_DIR="/home/runner/.ccache"' >> .config
         mkdir -p ~/.ccache
 
     - name: 编译固件
