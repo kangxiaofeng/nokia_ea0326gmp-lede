@@ -61,10 +61,14 @@ jobs:
         echo 'CONFIG_CCACHE=y' >> .config
         echo 'CONFIG_BUILDBOT=y' >> .config
         echo 'CONFIG_SINGLE_IMAGE_FILESYSTEM=y' >> .config
+        echo 'CONFIG_CCACHE_DIR=\"/home/runner/.ccache\"' >> .config
         mkdir -p ~/.ccache
 
     - name: 编译固件
       id: compile
+      env:
+        CCACHE_MAXSIZE: 2G
+        CCACHE_SLOPPINESS: file_macro,locale,time_macros
       run: |
         cd lede
         make defconfig
