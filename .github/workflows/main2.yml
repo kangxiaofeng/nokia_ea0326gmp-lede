@@ -81,9 +81,11 @@ jobs:
         CCACHE_DIR: /home/runner/.ccache
       run: |
         cd lede
+        ccache -s
         make defconfig
         make download -j$(($(nproc)+1)) V=s
         make -j$(($(nproc)+1)) V=s
+        ccache -s
         if [ $? -ne 0 ]; then
           echo "编译失败"
           exit 1
